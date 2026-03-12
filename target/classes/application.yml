@@ -1,0 +1,24 @@
+spring:
+  profiles:
+    active: dev
+  application:
+    name: medical-system
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
+server:
+  port: 8081
+
+jwt:
+  secret: medical-system-jwt-secret-key-2024-very-long-string-at-least-256-bits-for-security
+  expiration: 86400000
+
+# =====================================================
+# Claude AI 配置
+# ★ 在此处填入你的 Anthropic API Key（sk-ant-api03-...）
+# =====================================================
+claude:
+  api-key: sk-5d9271398f020a26f134c9ee78b824bb30a8e99f42740cf8802ed32b28546014
+  model: claude-haiku-4-5-20251001
+  base-url: http://38.34.8.202:8991

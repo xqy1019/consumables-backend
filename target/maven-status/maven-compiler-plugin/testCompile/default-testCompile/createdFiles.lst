@@ -1,0 +1,4 @@
+com/medical/system/service/InventoryServiceTest.class
+com/medical/system/service/AuthServiceTest.class
+com/medical/system/controller/RequisitionControllerTest.class
+com/medical/system/service/RequisitionServiceTest.class
