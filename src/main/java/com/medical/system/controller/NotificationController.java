@@ -3,6 +3,7 @@ package com.medical.system.controller;
 import com.medical.system.common.Result;
 import com.medical.system.entity.*;
 import com.medical.system.repository.*;
+import com.medical.system.service.impl.AnomalyWorkOrderService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,10 @@ public class NotificationController {
     private final SupplierRepository supplierRepository;
     private final RecallNoticeRepository recallNoticeRepository;
     private final AiExpiryDisposalCacheRepository aiExpiryDisposalCacheRepository;
+    private final DeptParLevelRepository deptParLevelRepository;
+    private final DeptInventoryRepository deptInventoryRepository;
+    private final DepartmentRepository departmentRepository;
+    private final AnomalyWorkOrderService anomalyWorkOrderService;
 
     @GetMapping
     public Result<NotificationResult> getNotifications() {
@@ -45,6 +50,20 @@ public class NotificationController {
             n.setContent("申领单 " + r.getRequisitionNo() + " 等待审批");
             n.setLinkPath("/requisitions");
             n.setCreateTime(r.getCreateTime());
+            items.add(n);
+        }
+
+        // 1b. 待签收的申领单（已发放待科室确认）
+        List<Requisition> dispatchedReqs = requisitionRepository.findByStatus("DISPATCHED");
+        for (Requisition r : dispatchedReqs) {
+            NotificationVO n = new NotificationVO();
+            n.setId("sign-" + r.getId());
+            n.setType("PENDING_SIGN");
+            n.setLevel("info");
+            n.setTitle("申领单待签收");
+            n.setContent("申领单 " + r.getRequisitionNo() + " 已发放，请及时签收确认");
+            n.setLinkPath("/requisitions");
+            n.setCreateTime(r.getUpdateTime() != null ? r.getUpdateTime() : r.getCreateTime());
             items.add(n);
         }
 
@@ -163,6 +182,49 @@ public class NotificationController {
             n.setCreateTime(r.getCreateTime());
             items.add(n);
         });
+
+        // 8. 二级库低库存预警（科室库存低于最低线）
+        List<DeptParLevel> activeParLevels = deptParLevelRepository.findByIsActiveTrue();
+        for (DeptParLevel par : activeParLevels) {
+            deptInventoryRepository.findByDeptIdAndMaterialId(par.getDeptId(), par.getMaterialId())
+                    .ifPresent(inv -> {
+                        if (par.getMinQuantity() != null
+                                && inv.getCurrentQuantity().compareTo(par.getMinQuantity()) < 0) {
+                            String deptName = departmentRepository.findById(par.getDeptId())
+                                    .map(Department::getDeptName).orElse("未知科室");
+                            String matName = materialRepository.findById(par.getMaterialId())
+                                    .map(Material::getMaterialName).orElse("未知耗材");
+                            NotificationVO n = new NotificationVO();
+                            n.setId("low-dept-" + inv.getId());
+                            n.setType("LOW_DEPT_STOCK");
+                            n.setLevel("warning");
+                            n.setTitle(deptName + " - " + matName + " 库存不足");
+                            n.setContent("当前库存 " + inv.getCurrentQuantity()
+                                    + "，低于最低线 " + par.getMinQuantity() + "，建议立即补货");
+                            n.setLinkPath("/consumables/dept-inventory");
+                            n.setCreateTime(inv.getUpdatedAt() != null ? inv.getUpdatedAt() : LocalDateTime.now());
+                            items.add(n);
+                        }
+                    });
+        }
+
+        // 9. 工单 SLA 超期通知
+        try {
+            List<AnomalyWorkOrder> slaBreached = anomalyWorkOrderService.getSlaBreachedActiveOrders();
+            for (AnomalyWorkOrder wo : slaBreached) {
+                NotificationVO n = new NotificationVO();
+                n.setId("sla-" + wo.getId());
+                n.setType("SLA_BREACH");
+                n.setLevel("error");
+                n.setTitle("工单 SLA 超期");
+                n.setContent("工单 #" + wo.getId() + " 已超过 SLA 时限，当前优先级：" + wo.getPriority());
+                n.setLinkPath("/consumables/work-orders");
+                n.setCreateTime(wo.getUpdatedAt());
+                items.add(n);
+            }
+        } catch (Exception e) {
+            log.debug("查询 SLA 超期工单失败: {}", e.getMessage());
+        }
 
         // 按创建时间倒序
         items.sort((a, b) -> {

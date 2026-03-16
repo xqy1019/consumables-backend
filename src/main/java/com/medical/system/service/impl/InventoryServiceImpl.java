@@ -9,6 +9,7 @@ import com.medical.system.entity.Inventory;
 import com.medical.system.entity.InventoryTransaction;
 import com.medical.system.entity.Material;
 import com.medical.system.exception.BusinessException;
+import com.medical.system.exception.ResourceNotFoundException;
 import com.medical.system.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -148,7 +149,7 @@ public class InventoryServiceImpl {
     @Transactional
     public InventoryResponse inbound(InboundRequest request) {
         if (!materialRepository.existsById(request.getMaterialId())) {
-            throw new BusinessException("耗材不存在");
+            throw new ResourceNotFoundException("耗材", request.getMaterialId());
         }
         Inventory inventory = new Inventory();
         inventory.setMaterialId(request.getMaterialId());

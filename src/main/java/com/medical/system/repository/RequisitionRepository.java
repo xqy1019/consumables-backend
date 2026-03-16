@@ -28,6 +28,12 @@ public interface RequisitionRepository extends JpaRepository<Requisition, Long> 
     @Query("SELECT r FROM Requisition r WHERE r.createTime >= :since ORDER BY r.createTime DESC")
     List<Requisition> findRecentRequisitions(@Param("since") LocalDateTime since, Pageable pageable);
 
+    List<Requisition> findByStatusAndCreateTimeBetween(String status, LocalDateTime start, LocalDateTime end);
+
+    List<Requisition> findByStatusInAndRequisitionDateBetween(List<String> statuses, LocalDateTime start, LocalDateTime end);
+
+    List<Requisition> findByDeptIdAndStatusInAndRequisitionDateBetween(Long deptId, List<String> statuses, LocalDateTime start, LocalDateTime end);
+
     /** 从数据库序列获取下一个序号（支持多实例部署，重启不重置） */
     @Query(value = "SELECT nextval('requisition_seq')", nativeQuery = true)
     Long nextRequisitionSeq();

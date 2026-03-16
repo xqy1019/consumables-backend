@@ -22,6 +22,8 @@ public class AiScheduledTaskService {
     private final AiExpiryDisposalService aiExpiryDisposalService;
     private final AiPredictionResultRepository predictionResultRepository;
     private final InventoryTransactionRepository inventoryTransactionRepository;
+    private final SmallConsumableService smallConsumableService;
+    private final AnomalyWorkOrderService anomalyWorkOrderService;
 
     /**
      * 每天早上8点刷新临期处置建议缓存
@@ -87,6 +89,37 @@ public class AiScheduledTaskService {
             log.info("预测准确率评估完成，共处理 {} 条记录", processed);
         } catch (Exception e) {
             log.error("评估预测准确率失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 每2小时检查工单 SLA，超期自动升级优先级
+     */
+    @Scheduled(cron = "0 0 */2 * * ?")
+    @Transactional
+    public void checkWorkOrderSLA() {
+        log.info("开始检查工单 SLA...");
+        try {
+            int escalated = anomalyWorkOrderService.checkAndEscalateSLA();
+            log.info("工单 SLA 检查完成，升级 {} 个工单", escalated);
+        } catch (Exception e) {
+            log.error("工单 SLA 检查失败: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 每天早上9点检查当月消耗异常并自动生成 DANGER 工单
+     */
+    @Scheduled(cron = "0 0 9 * * ?")
+    @Transactional
+    public void autoCreateAnomalyWorkOrders() {
+        log.info("开始检查当月消耗异常并自动生成工单...");
+        try {
+            // 系统用户 ID=1
+            int created = smallConsumableService.autoCreateWorkOrdersForAnomalies(null, 1L);
+            log.info("异常工单自动生成完成，新创建 {} 个工单", created);
+        } catch (Exception e) {
+            log.error("异常工单自动生成失败: {}", e.getMessage(), e);
         }
     }
 }

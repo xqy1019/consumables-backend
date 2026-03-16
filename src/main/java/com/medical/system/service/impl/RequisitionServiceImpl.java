@@ -6,6 +6,7 @@ import com.medical.system.dto.request.CreateRequisitionRequest;
 import com.medical.system.dto.response.RequisitionResponse;
 import com.medical.system.entity.*;
 import com.medical.system.exception.BusinessException;
+import com.medical.system.exception.ResourceNotFoundException;
 import com.medical.system.repository.*;
 import com.medical.system.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -18,8 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -35,6 +36,7 @@ public class RequisitionServiceImpl {
     private final UserRepository userRepository;
     private final InventoryRepository inventoryRepository;
     private final InventoryTransactionRepository inventoryTransactionRepository;
+    private final DeptInventoryService deptInventoryService;
 
     @Transactional(readOnly = true)
     public PageResult<RequisitionResponse> getRequisitions(String status, Long deptId, Long createdBy, Pageable pageable) {
@@ -43,15 +45,60 @@ public class RequisitionServiceImpl {
             deptId = SecurityUtils.getCurrentDeptId();
         }
         Page<Requisition> page = requisitionRepository.findByConditions(status, deptId, createdBy, pageable);
-        List<RequisitionResponse> records = page.getContent().stream()
-                .map(this::convertToResponse).collect(Collectors.toList());
+        List<Requisition> requisitions = page.getContent();
+
+        // Pre-load lookup data to avoid N+1 queries
+        Set<Long> deptIds = new HashSet<>();
+        Set<Long> userIds = new HashSet<>();
+        for (Requisition req : requisitions) {
+            if (req.getDeptId() != null) deptIds.add(req.getDeptId());
+            if (req.getCreatedBy() != null) userIds.add(req.getCreatedBy());
+            if (req.getSignedBy() != null) userIds.add(req.getSignedBy());
+        }
+
+        Map<Long, Department> deptMap = deptIds.isEmpty() ? Collections.emptyMap()
+                : departmentRepository.findAllById(deptIds).stream()
+                    .collect(Collectors.toMap(Department::getId, Function.identity()));
+        Map<Long, User> userMap = userIds.isEmpty() ? new HashMap<>()
+                : userRepository.findAllById(userIds).stream()
+                    .collect(Collectors.toMap(User::getId, Function.identity(), (a, b) -> a, HashMap::new));
+
+        // Pre-load items and approval records for all requisitions
+        List<Long> reqIds = requisitions.stream().map(Requisition::getId).collect(Collectors.toList());
+        Map<Long, List<RequisitionItem>> itemsByReqId = reqIds.isEmpty() ? Collections.emptyMap()
+                : requisitionItemRepository.findByRequisitionIdIn(reqIds).stream()
+                    .collect(Collectors.groupingBy(RequisitionItem::getRequisitionId));
+        Map<Long, List<ApprovalRecord>> approvalsByReqId = reqIds.isEmpty() ? Collections.emptyMap()
+                : approvalRecordRepository.findByRequisitionIdIn(reqIds).stream()
+                    .collect(Collectors.groupingBy(ApprovalRecord::getRequisitionId));
+
+        // Collect all material IDs from items and pre-load
+        Set<Long> materialIds = new HashSet<>();
+        itemsByReqId.values().forEach(items ->
+                items.forEach(item -> { if (item.getMaterialId() != null) materialIds.add(item.getMaterialId()); }));
+        Map<Long, Material> materialMap = materialIds.isEmpty() ? Collections.emptyMap()
+                : materialRepository.findAllById(materialIds).stream()
+                    .collect(Collectors.toMap(Material::getId, Function.identity()));
+
+        // Collect approver user IDs and merge into userMap
+        Set<Long> approverIds = new HashSet<>();
+        approvalsByReqId.values().forEach(records ->
+                records.forEach(ar -> { if (ar.getApproverId() != null) approverIds.add(ar.getApproverId()); }));
+        approverIds.removeAll(userMap.keySet());
+        if (!approverIds.isEmpty()) {
+            userRepository.findAllById(approverIds).forEach(u -> userMap.put(u.getId(), u));
+        }
+
+        List<RequisitionResponse> records = requisitions.stream()
+                .map(req -> convertToResponse(req, deptMap, userMap, materialMap, itemsByReqId, approvalsByReqId))
+                .collect(Collectors.toList());
         return PageResult.of(records, page.getTotalElements(), pageable.getPageNumber() + 1, pageable.getPageSize());
     }
 
     @Transactional(readOnly = true)
     public RequisitionResponse getRequisitionById(Long id) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         return convertToResponse(requisition);
     }
 
@@ -69,15 +116,16 @@ public class RequisitionServiceImpl {
         // 先保存父记录获取 ID，再手动保存子记录（避免 Hibernate 单向 @JoinColumn NOT NULL 问题）
         Requisition saved = requisitionRepository.save(requisition);
 
-        if (request.getItems() != null) {
-            request.getItems().forEach(itemReq -> {
+        if (request.getItems() != null && !request.getItems().isEmpty()) {
+            List<RequisitionItem> items = request.getItems().stream().map(itemReq -> {
                 RequisitionItem item = new RequisitionItem();
                 item.setRequisitionId(saved.getId());
                 item.setMaterialId(itemReq.getMaterialId());
                 item.setQuantity(itemReq.getQuantity());
                 item.setRemark(itemReq.getRemark());
-                requisitionItemRepository.save(item);
-            });
+                return item;
+            }).collect(Collectors.toList());
+            requisitionItemRepository.saveAll(items);
         }
 
         return convertToResponse(saved);
@@ -86,7 +134,7 @@ public class RequisitionServiceImpl {
     @Transactional
     public RequisitionResponse submitRequisition(Long id) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         checkDeptAccess(requisition.getDeptId());
         if (!"DRAFT".equals(requisition.getStatus())) {
             throw new BusinessException("只有草稿状态的申领单可以提交");
@@ -98,7 +146,7 @@ public class RequisitionServiceImpl {
     @Transactional
     public RequisitionResponse approveRequisition(Long id, Long approverId, ApprovalRequest request) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         checkDeptAccess(requisition.getDeptId());
         if (!"PENDING".equals(requisition.getStatus())) {
             throw new BusinessException("只有待审批状态的申领单可以审批");
@@ -119,7 +167,7 @@ public class RequisitionServiceImpl {
     @Transactional
     public RequisitionResponse rejectRequisition(Long id, Long approverId, ApprovalRequest request) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         checkDeptAccess(requisition.getDeptId());
         if (!"PENDING".equals(requisition.getStatus())) {
             throw new BusinessException("只有待审批状态的申领单可以驳回");
@@ -140,7 +188,7 @@ public class RequisitionServiceImpl {
     @Transactional
     public RequisitionResponse dispatchRequisition(Long id) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         // 非跨科室角色（如库管员）只能发放本科室的申领单
         checkDeptAccess(requisition.getDeptId());
         if (!"APPROVED".equals(requisition.getStatus())) {
@@ -190,13 +238,17 @@ public class RequisitionServiceImpl {
         }
 
         requisition.setStatus("DISPATCHED");
+
+        // 入库到科室二级库
+        deptInventoryService.onRequisitionDispatched(requisition.getDeptId(), reqItems);
+
         return convertToResponse(requisitionRepository.save(requisition));
     }
 
     @Transactional
     public RequisitionResponse signRequisition(Long id, Long signerId, String signRemark) {
         Requisition requisition = requisitionRepository.findById(id)
-                .orElseThrow(() -> new BusinessException("申领单不存在"));
+                .orElseThrow(() -> new ResourceNotFoundException("申领单", id));
         checkDeptAccess(requisition.getDeptId());
         if (!"DISPATCHED".equals(requisition.getStatus())) {
             throw new BusinessException("只有已发放状态的申领单可以签收");
@@ -236,6 +288,77 @@ public class RequisitionServiceImpl {
             case "SIGNED" -> "已签收";
             default -> status;
         };
+    }
+
+    private RequisitionResponse convertToResponse(Requisition req,
+                                                     Map<Long, Department> deptMap,
+                                                     Map<Long, User> userMap,
+                                                     Map<Long, Material> materialMap,
+                                                     Map<Long, List<RequisitionItem>> itemsByReqId,
+                                                     Map<Long, List<ApprovalRecord>> approvalsByReqId) {
+        RequisitionResponse response = new RequisitionResponse();
+        response.setId(req.getId());
+        response.setRequisitionNo(req.getRequisitionNo());
+        response.setDeptId(req.getDeptId());
+        response.setRequisitionDate(req.getRequisitionDate());
+        response.setRequiredDate(req.getRequiredDate());
+        response.setStatus(req.getStatus());
+        response.setStatusLabel(getStatusLabel(req.getStatus()));
+        response.setRemark(req.getRemark());
+        response.setCreatedBy(req.getCreatedBy());
+        response.setCreateTime(req.getCreateTime());
+
+        Department dept = deptMap.get(req.getDeptId());
+        if (dept != null) response.setDeptName(dept.getDeptName());
+
+        if (req.getCreatedBy() != null) {
+            User creator = userMap.get(req.getCreatedBy());
+            if (creator != null) response.setCreatedByName(creator.getRealName());
+        }
+
+        response.setSignedBy(req.getSignedBy());
+        response.setSignTime(req.getSignTime());
+        response.setSignRemark(req.getSignRemark());
+        if (req.getSignedBy() != null) {
+            User signer = userMap.get(req.getSignedBy());
+            if (signer != null) response.setSignedByName(signer.getRealName());
+        }
+
+        List<RequisitionItem> items = itemsByReqId.getOrDefault(req.getId(), Collections.emptyList());
+        List<RequisitionResponse.ItemResponse> itemResponses = items.stream().map(item -> {
+            RequisitionResponse.ItemResponse ir = new RequisitionResponse.ItemResponse();
+            ir.setId(item.getId());
+            ir.setMaterialId(item.getMaterialId());
+            ir.setQuantity(item.getQuantity());
+            ir.setActualQuantity(item.getActualQuantity());
+            ir.setRemark(item.getRemark());
+            Material m = materialMap.get(item.getMaterialId());
+            if (m != null) {
+                ir.setMaterialName(m.getMaterialName());
+                ir.setSpecification(m.getSpecification());
+                ir.setUnit(m.getUnit());
+            }
+            return ir;
+        }).collect(Collectors.toList());
+        response.setItems(itemResponses);
+
+        List<ApprovalRecord> approvalRecords = approvalsByReqId.getOrDefault(req.getId(), Collections.emptyList());
+        List<RequisitionResponse.ApprovalRecordResponse> approvalResponses = approvalRecords.stream().map(ar -> {
+            RequisitionResponse.ApprovalRecordResponse arr = new RequisitionResponse.ApprovalRecordResponse();
+            arr.setId(ar.getId());
+            arr.setApproverId(ar.getApproverId());
+            arr.setApprovalTime(ar.getApprovalTime());
+            arr.setStatus(ar.getStatus());
+            arr.setRemark(ar.getRemark());
+            if (ar.getApproverId() != null) {
+                User approver = userMap.get(ar.getApproverId());
+                if (approver != null) arr.setApproverName(approver.getRealName());
+            }
+            return arr;
+        }).collect(Collectors.toList());
+        response.setApprovalRecords(approvalResponses);
+
+        return response;
     }
 
     public RequisitionResponse convertToResponse(Requisition req) {

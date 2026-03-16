@@ -9,6 +9,8 @@ import com.medical.system.repository.InventoryRepository;
 import com.medical.system.repository.MaterialRepository;
 import com.medical.system.repository.SupplierRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -38,11 +40,13 @@ public class MaterialServiceImpl {
         return convertToResponse(material);
     }
 
+    @Cacheable(value = "materials", key = "'active'")
     public List<MaterialResponse> getActiveMaterials() {
         return materialRepository.findByStatus(1).stream()
                 .map(this::convertToResponse).collect(Collectors.toList());
     }
 
+    @CacheEvict(value = "materials", allEntries = true)
     @Transactional
     public MaterialResponse createMaterial(CreateMaterialRequest request) {
         if (materialRepository.existsByMaterialCode(request.getMaterialCode())) {
@@ -54,6 +58,7 @@ public class MaterialServiceImpl {
         return convertToResponse(materialRepository.save(material));
     }
 
+    @CacheEvict(value = "materials", allEntries = true)
     @Transactional
     public MaterialResponse updateMaterial(Long id, CreateMaterialRequest request) {
         Material material = materialRepository.findById(id)
@@ -79,6 +84,7 @@ public class MaterialServiceImpl {
         material.setIsHighValue(Boolean.TRUE.equals(request.getIsHighValue()));
     }
 
+    @CacheEvict(value = "materials", allEntries = true)
     @Transactional
     public void deleteMaterial(Long id) {
         Material material = materialRepository.findById(id)

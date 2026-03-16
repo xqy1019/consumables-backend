@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface RequisitionItemRepository extends JpaRepository<RequisitionItem, Long> {
     List<RequisitionItem> findByRequisitionId(Long requisitionId);
+    List<RequisitionItem> findByRequisitionIdIn(List<Long> requisitionIds);
 }

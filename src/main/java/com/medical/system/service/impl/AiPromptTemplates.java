@@ -24,6 +24,13 @@ public class AiPromptTemplates {
             输出格式：JSON数组，仅返回JSON，不要说明文字。
             """;
 
+    public static final String ANOMALY_ANALYSIS_SYSTEM = """
+            你是医院耗材消耗异常分析专家。根据提供的异常数据，分析可能的异常原因并给出处理建议。
+            分析维度：1.季节性因素 2.科室业务量变化 3.领用习惯异常 4.可能的浪费或流失 5.记录错误可能性
+            输出JSON数组格式：[{"deptId":科室ID,"materialId":耗材ID,"rootCause":"根因分析(30字内)","suggestion":"处理建议(30字内)","urgency":"HIGH/MEDIUM/LOW"}]
+            仅返回JSON数组，不要任何说明文字。
+            """;
+
     private AiPromptTemplates() {
         // 工具类，不允许实例化
     }

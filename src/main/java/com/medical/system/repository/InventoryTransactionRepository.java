@@ -64,4 +64,17 @@ public interface InventoryTransactionRepository extends JpaRepository<InventoryT
                    "ORDER BY material_id, dept_id, day",
            nativeQuery = true)
     List<Object[]> findDailyOutboundGrouped(@Param("since") LocalDateTime since);
+
+    /** 科室出库排名：按科室聚合数量和金额，在数据库端完成 JOIN 计算 */
+    @Query(value = "SELECT t.dept_id, d.dept_name, SUM(t.quantity) AS total_qty, " +
+                   "SUM(t.quantity * COALESCE(m.standard_price, 0)) AS total_amount " +
+                   "FROM inventory_transactions t " +
+                   "JOIN departments d ON d.id = t.dept_id " +
+                   "JOIN materials m ON m.id = t.material_id " +
+                   "WHERE t.transaction_type = 'OUTBOUND' AND t.dept_id IS NOT NULL " +
+                   "AND t.create_time >= :since " +
+                   "GROUP BY t.dept_id, d.dept_name " +
+                   "ORDER BY total_qty DESC",
+           nativeQuery = true)
+    List<Object[]> findDeptOutboundRanking(@Param("since") LocalDateTime since);
 }

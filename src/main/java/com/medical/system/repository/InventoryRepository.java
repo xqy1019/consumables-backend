@@ -89,4 +89,18 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
            "SUM(CASE WHEN i.inspectionStatus = 'PASSED' THEN 1 ELSE 0 END) as passed " +
            "FROM Inventory i WHERE i.supplierId IN :supplierIds GROUP BY i.supplierId")
     List<Object[]> findQualityRateBySupplierIds(@Param("supplierIds") List<Long> supplierIds);
+
+    /** 库存总价值（数量 × 标准单价），在数据库端完成聚合 */
+    @Query(value = "SELECT COALESCE(SUM(i.quantity * COALESCE(m.standard_price, 0)), 0) " +
+                   "FROM inventory i JOIN materials m ON i.material_id = m.id WHERE i.status = 1",
+           nativeQuery = true)
+    long sumTotalInventoryValue();
+
+    /** 有效库存记录数 */
+    @Query(value = "SELECT COUNT(*) FROM inventory WHERE status = 1", nativeQuery = true)
+    long countActiveInventory();
+
+    /** 即将过期库存数量（数据库端 COUNT，避免 findExpiringInventory 加载全部实体） */
+    @Query("SELECT COUNT(i) FROM Inventory i WHERE i.expiryDate <= :alertDate AND i.status = 1 AND i.quantity > 0")
+    long countExpiringInventory(@Param("alertDate") LocalDate alertDate);
 }

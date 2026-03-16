@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface ApprovalRecordRepository extends JpaRepository<ApprovalRecord, Long> {
     List<ApprovalRecord> findByRequisitionIdOrderByApprovalTimeAsc(Long requisitionId);
+    List<ApprovalRecord> findByRequisitionIdIn(List<Long> requisitionIds);
 }

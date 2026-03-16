@@ -10,6 +10,12 @@ spring:
 server:
   port: 8081
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
 jwt:
   secret: medical-system-jwt-secret-key-2024-very-long-string-at-least-256-bits-for-security
   expiration: 86400000
@@ -22,3 +28,21 @@ claude:
   api-key: sk-5d9271398f020a26f134c9ee78b824bb30a8e99f42740cf8802ed32b28546014
   model: claude-haiku-4-5-20251001
   base-url: http://38.34.8.202:8991
+
+app:
+  expiry:
+    alert-days: 30
+  anomaly:
+    warning-threshold: 0.3
+    danger-threshold: 0.5
+  par-suggestion:
+    safety-margin: 1.2
+    min-coverage-ratio: 0.3
+    min-deviation: 0.15
+  sla:
+    high-priority-hours: 24
+    normal-priority-hours: 48
+    low-priority-hours: 72
+  pagination:
+    max-size: 100
+    default-size: 20

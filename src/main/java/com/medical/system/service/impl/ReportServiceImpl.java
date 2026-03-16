@@ -139,35 +139,17 @@ public class ReportServiceImpl {
     // ==================== 科室排名 ====================
     public List<Map<String, Object>> getDeptRanking(int days) {
         LocalDateTime since = LocalDateTime.now().minusDays(days);
-        List<InventoryTransaction> txs = transactionRepository.findRecentTransactions(since, PageRequest.of(0, 1000));
-
-        Map<Long, Long> deptQty = new HashMap<>();
-        for (InventoryTransaction tx : txs) {
-            if ("OUTBOUND".equals(tx.getTransactionType()) && tx.getDeptId() != null) {
-                deptQty.merge(tx.getDeptId(), (long) tx.getQuantity(), Long::sum);
-            }
-        }
+        List<Object[]> rows = transactionRepository.findDeptOutboundRanking(since);
 
         List<Map<String, Object>> result = new ArrayList<>();
         int rank = 1;
-        for (Map.Entry<Long, Long> e : deptQty.entrySet().stream()
-                .sorted(Map.Entry.<Long, Long>comparingByValue().reversed())
-                .collect(Collectors.toList())) {
+        for (Object[] row : rows) {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("deptId", e.getKey());
-            item.put("totalQuantity", e.getValue());
+            item.put("deptId", ((Number) row[0]).longValue());
+            item.put("deptName", row[1]);
+            item.put("totalQuantity", ((Number) row[2]).longValue());
+            item.put("totalAmount", ((Number) row[3]).longValue());
             item.put("rank", rank++);
-            departmentRepository.findById(e.getKey()).ifPresent(d -> item.put("deptName", d.getDeptName()));
-
-            // 计算金额（近似）
-            long amount = txs.stream()
-                    .filter(t -> "OUTBOUND".equals(t.getTransactionType()) && e.getKey().equals(t.getDeptId()))
-                    .mapToLong(t -> {
-                        long unitPrice = materialRepository.findById(t.getMaterialId())
-                                .map(m -> m.getStandardPrice() != null ? m.getStandardPrice().longValue() : 0L).orElse(0L);
-                        return unitPrice * t.getQuantity();
-                    }).sum();
-            item.put("totalAmount", amount);
             result.add(item);
         }
         return result;
@@ -200,19 +182,12 @@ public class ReportServiceImpl {
     public Map<String, Object> getBiDashboard() {
         Map<String, Object> data = new LinkedHashMap<>();
 
-        // 库存总价值
-        long totalValue = inventoryRepository.findAll().stream()
-                .filter(inv -> inv.getStatus() == 1)
-                .mapToLong(inv -> {
-                    long price = materialRepository.findById(inv.getMaterialId())
-                            .map(m -> m.getStandardPrice() != null ? m.getStandardPrice().longValue() : 0L).orElse(0L);
-                    return price * inv.getQuantity();
-                }).sum();
-        data.put("totalInventoryValue", totalValue);
-        data.put("totalInventoryItems", inventoryRepository.countByStatus(1));
+        // 库存总价值 — 单条SQL聚合，不再加载全部实体
+        data.put("totalInventoryValue", inventoryRepository.sumTotalInventoryValue());
+        data.put("totalInventoryItems", inventoryRepository.countActiveInventory());
 
         LocalDate alertDate = LocalDate.now().plusDays(30);
-        data.put("expiringCount", inventoryRepository.findExpiringInventory(alertDate).size());
+        data.put("expiringCount", inventoryRepository.countExpiringInventory(alertDate));
         data.put("lowStockCount", inventoryRepository.countLowStockMaterials());
         data.put("pendingPurchase", purchaseContractRepository.findByConditions(null, "ACTIVE",
                 PageRequest.of(0, 100)).getTotalElements());

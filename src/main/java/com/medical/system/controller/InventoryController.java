@@ -10,9 +10,12 @@ import com.medical.system.dto.response.InventoryResponse;
 import com.medical.system.security.SecurityUtils;
 import com.medical.system.service.impl.InventoryServiceImpl;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/inventory")
 @RequiredArgsConstructor
+@Validated
 public class InventoryController {
 
     private final InventoryServiceImpl inventoryService;
@@ -29,8 +33,8 @@ public class InventoryController {
     public Result<PageResult<InventoryResponse>> getInventory(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
         PageRequest pageable = PageRequest.of(page - 1, size);
         return Result.success(inventoryService.getInventory(keyword, status, pageable));
     }
@@ -61,8 +65,8 @@ public class InventoryController {
     public Result<PageResult<InventoryResponse>> getInspections(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String inspectionStatus,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(defaultValue = "1") @Min(1) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
         PageRequest pageable = PageRequest.of(page - 1, size);
         return Result.success(inventoryService.getInspections(keyword, inspectionStatus, pageable));
     }

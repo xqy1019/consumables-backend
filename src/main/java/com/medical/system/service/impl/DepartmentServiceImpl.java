@@ -6,6 +6,8 @@ import com.medical.system.entity.Department;
 import com.medical.system.exception.BusinessException;
 import com.medical.system.repository.DepartmentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,7 @@ public class DepartmentServiceImpl {
 
     private final DepartmentRepository departmentRepository;
 
+    @Cacheable(value = "departments", key = "'tree'")
     public List<DepartmentResponse> getDepartmentTree() {
         List<Department> all = departmentRepository.findByStatusOrderByLevelAscDeptNameAsc(1);
         Map<Long, DepartmentResponse> map = all.stream()
@@ -41,6 +44,7 @@ public class DepartmentServiceImpl {
         return roots;
     }
 
+    @Cacheable(value = "departments", key = "'all'")
     public List<DepartmentResponse> getAllDepartments() {
         return departmentRepository.findByStatus(1).stream()
                 .map(this::convertToResponse).collect(Collectors.toList());
@@ -52,6 +56,7 @@ public class DepartmentServiceImpl {
         return convertToResponse(dept);
     }
 
+    @CacheEvict(value = "departments", allEntries = true)
     @Transactional
     public DepartmentResponse createDepartment(CreateDepartmentRequest request) {
         if (departmentRepository.existsByDeptCode(request.getDeptCode())) {
@@ -66,6 +71,7 @@ public class DepartmentServiceImpl {
         return convertToResponse(departmentRepository.save(dept));
     }
 
+    @CacheEvict(value = "departments", allEntries = true)
     @Transactional
     public DepartmentResponse updateDepartment(Long id, CreateDepartmentRequest request) {
         Department dept = departmentRepository.findById(id)
@@ -76,6 +82,7 @@ public class DepartmentServiceImpl {
         return convertToResponse(departmentRepository.save(dept));
     }
 
+    @CacheEvict(value = "departments", allEntries = true)
     @Transactional
     public void deleteDepartment(Long id) {
         Department dept = departmentRepository.findById(id)

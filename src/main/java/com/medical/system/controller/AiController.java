@@ -124,14 +124,14 @@ public class AiController {
     }
 
     @GetMapping("/recommend-requisition")
-    @PreAuthorize("hasAuthority('menu:ai')")
+    @PreAuthorize("hasAuthority('menu:requisition')")
     public Result<List<RequisitionRecommendationVO>> getRequisitionRecommendations(
             @RequestParam Long deptId) {
         return Result.success(aiRequisitionRecommendService.recommend(deptId));
     }
 
     @GetMapping("/requisition-review/{id}")
-    @PreAuthorize("hasAuthority('menu:ai')")
+    @PreAuthorize("hasAuthority('menu:requisition')")
     public Result<List<RequisitionReviewItemVO>> reviewRequisition(@PathVariable Long id) {
         return Result.success(aiRequisitionReviewService.review(id));
     }
